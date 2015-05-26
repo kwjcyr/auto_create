@@ -438,47 +438,6 @@ subroutine ccsm_init()
 !     endif
 !</list>
 
-
-
-      if (ocn_present) then
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing atm/ocn mapping'
-         call map_atm2ocn_init_mct(cdata_ax, cdata_ox)
-         call map_ocn2atm_init_mct(cdata_ox, cdata_ax)
-      endif
-      if (ice_present .and. ocn_present) then
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing ocn/ice mapping'
-         call map_ocn2ice_init_mct(cdata_ox, cdata_ix)
-         call map_ice2ocn_init_mct(cdata_ix, cdata_ox)
-      endif
-      if (ice_present) then
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing atm/ice mapping'
-         call map_ice2atm_init_mct(cdata_ix, cdata_ax)
-      endif
-      if (rof_present .and. ocnrof_prognostic) then
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing rof/ocn mapping'
-         call map_rof2ocn_init_mct(cdata_rx, cdata_ox)
-      endif
-      if (lnd_present) then
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing atm/lnd mapping'
-         call map_atm2lnd_init_mct(cdata_ax, cdata_lx)
-         call map_lnd2atm_init_mct(cdata_lx, cdata_ax)
-      endif
-      if (sno_present .and. glc_present) then
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing sno/glc mapping'
-         call map_sno2glc_init_mct(cdata_sx, cdata_gx)
-         call map_glc2sno_init_mct(cdata_gx, cdata_sx)
-      endif
-      if (wrf_present) then     
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing wrf/cam mapping'
-         call map_cam2wrf_init_mct(cdata_cx, cdata_mx)
-         call map_wrf2cam_init_mct(cdata_mx, cdata_cx)
-      endif
-      if (geatm_present) then    
-         if ( seq_comm_iamroot(CPLID)) write(logunit,F00) 'Initializing geatm/cam mapping'
-         call map_cam2gea_init_mct(cdata_cax, cdata_gex)
-         call map_gea2cam_init_mct(cdata_gex, cdata_cax)
-      endif
-
       call t_stopf  ('driver_init_maps')
 
       !-----------------------------------------------------------------------------
