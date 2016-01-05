@@ -3,7 +3,8 @@ import re
 import ConfigParser
 
 srcfile = "ccc_comp_mct.F90"
-modccc = ['atm','lnd','ocn','glc','ice']
+#modccc = ['atm','lnd','ocn','glc','ice']
+modccc = ['atm']
 
 src = open(srcfile,'r')
 lines = src.readlines()
