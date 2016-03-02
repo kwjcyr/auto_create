@@ -130,8 +130,8 @@ CONTAINS
     !
     type(mct_gsMap), pointer   :: gsMap_atm
     type(mct_gGrid), pointer   :: dom_a
-    type(seq_infodata_type),pointer :: infodata
     integer :: lsize
+    type(seq_infodata_type),pointer :: infodata
     integer :: ATMID
     integer :: mpicom_atm
     integer :: iradsw
@@ -227,11 +227,11 @@ CONTAINS
        !
 
        if (     trim(starttype) == trim(seq_infodata_start_type_start)) then
-          nsrest = 0
+          runtype = "initial"
        else if (trim(starttype) == trim(seq_infodata_start_type_cont) ) then
-          nsrest = 1
+          runtype = "continue"
        else if (trim(starttype) == trim(seq_infodata_start_type_brnch)) then
-          nsrest = 3
+          runtype = "branch"
        else
           write(iulog,*) 'atm_comp_mct: ERROR: unknown starttype'
           call shr_sys_abort()
@@ -416,25 +416,75 @@ CONTAINS
 !================================================================================
 
   subroutine atm_run_mct( EClock, cdata_a, x2a_a, a2x_a)
+    type(ESMF_Clock)            , intent(in)    :: EClock
+    type(seq_cdata)             , intent(inout) :: cdata_a
+    type(mct_aVect)             , intent(inout) :: x2a_a
+    type(mct_aVect)             , intent(inout) :: a2x_a
+
+    call shr_file_getLogUnit (shrlogunit)
+    call shr_file_getLogLevel(shrloglev)
+    call shr_file_setLogUnit (stdout)
+
+    call seq_cdata_setptrs(cdata_a, infodata=infodata)
 
 
+   call shr_file_setLogUnit (shrlogunit)
+   call shr_file_setLogLevel(shrloglev)
 
 
+#if (defined _MEMTRACE)
+    if(my_task == 0) then
+       lbnum=1
+       call memmon_dump_fort('memmon.out',SubName//':end::',lbnum) 
+       call memmon_reset_addr()
+    endif
+#endif
 
+  end subroutine atm_run_mct
 
+  subroutine atm_final_mct( )
+    
+    call {cmodel}_Final(errorCode)
 
+  end subroutine atm_final_mct
 
+  subroutine atm_SetGSMap_mct( mpicom_atm, {CCC}ID, gsMap_atm )
 
+    integer        , intent(in)    :: mpicom_atm
+    integer        , intent(in)    :: {CCC}ID
+    type(mct_gsMap), intent(inout) :: gsMap_atm
+    integer, allocatable :: gindex(:)
+    call mct_gsMap_init( gsMap_atm, gindex, mpicom_atm, {CCC}ID, nlcols, ngcols)
+    deallocate(gindex)
+  end subroutine atm_SetgsMap_mct
 
+  subroutine atm_import_mct(x2a_a, {ccc_errorcode})
+    type(mct_aVect)   , intent(inout) :: x2a_a
+ end subroutine atm_import_mct
 
+ subroutine atm_export_mct(a2x_a, {ccc_errorcode}) 
+    type(mct_aVect)   , intent(inout) :: a2x_a
+ end subroutine atm_export_mct
 
+ subroutine atm_domain_mct( lsize, gsMap_a, dom_a)
+    implicit none
+    integer        , intent(in)    :: lsize
+    type(mct_gsMap), intent(in)    :: gsMap_a
+    type(mct_ggrid), intent(inout) :: dom_a
+    call mct_gGrid_init( GGrid=dom_a, CoordChars=trim(seq_flds_dom_coord), OtherChars=trim(seq_flds_dom_other), lsize=lsize )
+    allocate(data(lsize))
+    call mct_gsMap_orderedPoints(gsMap_a, {my_task}, idata)
+    call mct_gGrid_importIAttr(dom_a,'GlobGridNum',idata,lsize)
 
-
-
-
-
-
-
-
-
-
+    data(:) = -9999.0_R8 
+    call mct_gGrid_importRAttr(dom_a,"lat"  ,data,lsize) 
+    call mct_gGrid_importRAttr(dom_a,"lon"  ,data,lsize) 
+    call mct_gGrid_importRAttr(dom_a,"area" ,data,lsize) 
+    call mct_gGrid_importRAttr(dom_a,"aream",data,lsize) 
+    data(:) = 0.0_R8     
+    call mct_gGrid_importRAttr(dom_a,"mask",data,lsize) 
+    call mct_gGrid_importRAttr(dom_a,"frac",data,lsize)
+    deallocate(data)
+    deallocate(idata)
+  end subroutine atm_domain_mct
+end module atm_comp_mct

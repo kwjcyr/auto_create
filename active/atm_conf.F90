@@ -98,6 +98,7 @@
 
 [end 3]
 [start 4]
+    type(seq_infodata_type),pointer :: infodata
     integer :: ATMID
     integer :: mpicom_atm
     integer :: iradsw
@@ -358,3 +359,52 @@
 
     call shr_sys_flush(iulog)
 [end 9]
+[start 10]
+    use time_manager,    only: advance_timestep, get_curr_date, get_curr_calday, &
+                           get_nstep, get_step_size
+    use scamMod,         only: single_column
+    use pmgrid,          only: plev, plevp
+    use constituents,    only: pcnst
+    use shr_sys_mod, only: shr_sys_flush
+[end 10]
+[start 11]
+    type(seq_infodata_type),pointer :: infodata
+    integer :: lsize           ! size of attribute vector
+    integer :: StepNo          ! time step           
+    integer :: DTime_Sync      ! integer timestep size
+    integer :: CurrentYMD      ! current year-month-day
+    integer :: iradsw          ! shortwave radation frequency (time steps) 
+    logical :: dosend          ! true => send data back to driver
+    integer :: dtime           ! time step increment (sec)
+    integer :: atm_cpl_dt      ! driver atm coupling time step 
+    integer :: ymd_sync        ! Sync date (YYYYMMDD)
+    integer :: yr_sync         ! Sync current year
+    integer :: mon_sync        ! Sync current month
+    integer :: day_sync        ! Sync current day
+    integer :: tod_sync        ! Sync current time of day (sec)
+    integer :: ymd             ! CAM current date (YYYYMMDD)
+    integer :: yr              ! CAM current year
+    integer :: mon             ! CAM current month
+    integer :: day             ! CAM current day
+    integer :: tod             ! CAM current time of day (sec)
+    integer :: nstep           ! CAM nstep
+    integer :: shrlogunit,shrloglev ! old values
+    real(r8):: caldayp1        ! CAM calendar day for for next cam time step
+    real(r8):: nextsw_cday     ! calendar of next atm shortwave
+    logical :: rstwr           ! .true. ==> write restart file before returning
+    logical :: nlend           ! Flag signaling last time-step
+    logical :: rstwr_sync      ! .true. ==> write restart file before returning
+    logical :: nlend_sync      ! Flag signaling last time-step
+    logical :: first_time = .true.
+    character(len=*), parameter :: subname="atm_run_mct"
+    !-----------------------------------------------------------------------
+    integer :: lbnum
+
+#if (defined _MEMTRACE)
+    if(masterproc) then
+      lbnum=1
+      call memmon_dump_fort('memmon.out',SubName //':start::',lbnum)
+    endif
+#endif
+[end 11]
+

@@ -23,62 +23,45 @@
 
   use seq_flds_mod
   use seq_cdata_mod,   only : seq_cdata, seq_cdata_setptrs
-  use seq_infodata_mod,only : seq_infodata_type, seq_infodata_getdata,
-&
-                      seq_infodata_putdata,
-seq_infodata_start_type_cont, &
-                      seq_infodata_start_type_brnch,
-seq_infodata_start_type_start
+  use seq_infodata_mod,only : seq_infodata_type, seq_infodata_getdata,&
+                      seq_infodata_putdata,seq_infodata_start_type_cont, &
+                      seq_infodata_start_type_brnch,seq_infodata_start_type_start
   use seq_timemgr_mod, only : seq_timemgr_eclockgetdata, &
                               seq_timemgr_restartalarmison, &
-                      seq_timemgr_eclockdateinsync, &
+                              seq_timemgr_eclockdateinsync, &
                               seq_timemgr_stopalarmison
   use perf_mod,        only : t_startf, t_stopf
-
   use ice_cpl_indices
-  use ice_flux,        only : strairxt, strairyt, strocnxt, strocnyt,
-&
-                  alvdr, alidr, alvdf, alidf, Tref, Qref, Uref, &
-                              flat, fsens, flwout, evap, fswabs, fhocn,
-&
+  use ice_flux,        only : strairxt, strairyt, strocnxt, strocnyt,&
+                            alvdr, alidr, alvdf, alidf, Tref, Qref, Uref, &
+                            flat, fsens, flwout, evap, fswabs, fhocn, &
                               fswthru,     &
                       fresh, fsalt, zlvl, uatm, vatm, potT, Tair, Qa,  &
                       rhoa, swvdr, swvdf, swidr, swidf, flw, frain,    &
                       fsnow, uocn, vocn, sst, ss_tltx, ss_tlty, frzmlt,&
                       sss, tf, wind, fsw, init_flux_atm, init_flux_ocn,&
                               faero
-  use ice_state,       only : vice, vsno, aice, trcr, filename_aero,
-filename_iage, &
-                              filename_volpn, filename_FY, filename_lvl,
-&
+  use ice_state,       only : vice, vsno, aice, trcr, filename_aero,filename_iage, &
+                              filename_volpn, filename_FY, filename_lvl,&
                               tr_aero, tr_iage, tr_FY, tr_pond, tr_lvl
-  use ice_domain_size, only : nx_global, ny_global, block_size_x,
-block_size_y, max_blocks
-  use ice_domain,      only : nblocks, blocks_ice, halo_info,
-distrb_info, profile_barrier
+  use ice_domain_size, only : nx_global, ny_global, block_size_x,block_size_y, max_blocks
+  use ice_domain,      only : nblocks, blocks_ice, halo_info,distrb_info, profile_barrier
   use ice_blocks,      only : block, get_block, nx_block, ny_block
-  use ice_grid,        only : tlon, tlat, tarea, tmask, anglet, hm,
-ocn_gridcell_frac, &
+  use ice_grid,        only : tlon, tlat, tarea, tmask, anglet, hm,ocn_gridcell_frac, &
                       grid_type, t2ugrid_vector
-  use ice_constants,   only : c0, c1, puny, tffresh, spval_dbl,
-rad_to_deg, radius, &
-                      field_loc_center, field_type_scalar,
-field_type_vector, c100
-  use ice_communicate, only : my_task, master_task, lprint_stats,
-MPI_COMM_ICE
-  use ice_calendar,    only : idate, mday, time, month, daycal, secday,
-&
+  use ice_constants,   only : c0, c1, puny, tffresh, spval_dbl,rad_to_deg, radius, &
+                      field_loc_center, field_type_scalar,field_type_vector, c100
+  use ice_communicate, only : my_task, master_task, lprint_stats,MPI_COMM_ICE
+  use ice_calendar,    only : idate, mday, time, month, daycal, secday,&
                       sec, dt, dt_dyn, xndt_dyn, calendar,      &
-                              calendar_type, nextsw_cday,
-days_per_year,&
+                              calendar_type, nextsw_cday,days_per_year,&
                               get_daycal, leap_year_count
   use ice_orbital,     only : eccen, obliqr, lambm0, mvelpp
   use ice_timers
   use ice_probability, only : init_numIceCells, print_numIceCells,  &
                   write_numIceCells, accum_numIceCells2
 
-  use ice_kinds_mod,   only : int_kind, dbl_kind, char_len_long,
-log_kind
+  use ice_kinds_mod,   only : int_kind, dbl_kind, char_len_long,log_kind
 !  use ice_init
   use ice_boundary,    only : ice_HaloUpdate 
   use ice_scam,        only : scmlat, scmlon, single_column
@@ -90,5 +73,6 @@ log_kind
   use ice_global_reductions
   use ice_broadcast
 
-
 [end 1]
+[start 2]
+[end 2]
