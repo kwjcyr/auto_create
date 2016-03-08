@@ -1,2 +1,44 @@
 [conf]
 runtypemap_key=runtype
+[export]
+{c}=a
+{x}=ig
+{ccc_out}=cam_out(c)
+{x1_1}=Sa
+{x1_2}=Faxa
+{listx1}=[
+       ['pslv','psl'],
+       ['z','zbot'],
+       ['u','ubot'],
+       ['v','vbot'],
+       ['tbot','tbot'],
+       ['ptem','thbot'],
+       ['pbot','pbot'],
+       ['shum','qbot'],
+       ['dens','rho']]
+{listx2}=[
+        ['swnet','netsw'],
+        ['lwdn','flwds'],
+        ['rainc','precc','*1000._r8-cam_out(c)%precsc(i)*1000._r8'],
+        ['rainl','precl','*1000._r8-cam_out(c)%precsl(i)*1000._r8'],
+        ['snowc','precsc','1000._r8'],
+        ['snowl','precsl','1000._r8'],
+        ['swndr','soll'], 
+        ['swvdr','sols'],
+        ['swndf','solld'],  
+        ['swvdf','solsd'], 
+        ['bcphidry','%cphidry'],
+        ['bcphodry','bcphodry'],
+        ['bcphiwet','bcphiwet'],
+        ['ocphidry','ocphidry'],
+        ['ocphodry','ocphodry'],
+        ['ocphiwet','ocphiwet'],
+        ['dstwet1','dstwet1'],
+        ['dstdry1','dstdry1'],
+        ['dstwet2','dstwet2'],
+        ['dstdry2','dstdry2'],
+        ['dstwet3'],
+        ['dstdry3'],
+        ['dstwet4','dstwet4'],
+        ['dstdry4','dstdry4']]
+       

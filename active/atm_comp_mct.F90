@@ -416,17 +416,197 @@ CONTAINS
 !================================================================================
 
   subroutine atm_run_mct( EClock, cdata_a, x2a_a, a2x_a)
+    use time_manager,    only: advance_timestep, get_curr_date, get_curr_calday, &
+                           get_nstep, get_step_size
+    use scamMod,         only: single_column
+    use pmgrid,          only: plev, plevp
+    use constituents,    only: pcnst
+    use shr_sys_mod, only: shr_sys_flush
     type(ESMF_Clock)            , intent(in)    :: EClock
     type(seq_cdata)             , intent(inout) :: cdata_a
     type(mct_aVect)             , intent(inout) :: x2a_a
     type(mct_aVect)             , intent(inout) :: a2x_a
 
+    type(seq_infodata_type),pointer :: infodata
+    integer :: lsize           ! size of attribute vector
+    integer :: StepNo          ! time step           
+    integer :: DTime_Sync      ! integer timestep size
+    integer :: CurrentYMD      ! current year-month-day
+    integer :: iradsw          ! shortwave radation frequency (time steps) 
+    logical :: dosend          ! true => send data back to driver
+    integer :: dtime           ! time step increment (sec)
+    integer :: atm_cpl_dt      ! driver atm coupling time step 
+    integer :: ymd_sync        ! Sync date (YYYYMMDD)
+    integer :: yr_sync         ! Sync current year
+    integer :: mon_sync        ! Sync current month
+    integer :: day_sync        ! Sync current day
+    integer :: tod_sync        ! Sync current time of day (sec)
+    integer :: ymd             ! CAM current date (YYYYMMDD)
+    integer :: yr              ! CAM current year
+    integer :: mon             ! CAM current month
+    integer :: day             ! CAM current day
+    integer :: tod             ! CAM current time of day (sec)
+    integer :: nstep           ! CAM nstep
+    integer :: shrlogunit,shrloglev ! old values
+    real(r8):: caldayp1        ! CAM calendar day for for next cam time step
+    real(r8):: nextsw_cday     ! calendar of next atm shortwave
+    logical :: rstwr           ! .true. ==> write restart file before returning
+    logical :: nlend           ! Flag signaling last time-step
+    logical :: rstwr_sync      ! .true. ==> write restart file before returning
+    logical :: nlend_sync      ! Flag signaling last time-step
+    logical :: first_time = .true.
+    character(len=*), parameter :: subname="atm_run_mct"
+    !-----------------------------------------------------------------------
+    integer :: lbnum
+
+#if (defined _MEMTRACE)
+    if(masterproc) then
+      lbnum=1
+      call memmon_dump_fort('memmon.out',SubName //':start::',lbnum)
+    endif
+#endif
     call shr_file_getLogUnit (shrlogunit)
     call shr_file_getLogLevel(shrloglev)
     call shr_file_setLogUnit (stdout)
 
     call seq_cdata_setptrs(cdata_a, infodata=infodata)
 
+    call seq_timemgr_EClockGetData(EClock,curr_ymd=ymd_sync,curr_tod=tod_sync, &
+       curr_yr=yr_sync,curr_mon=mon_sync,curr_day=day_sync)
+
+    !load orbital parameters
+    call seq_infodata_GetData( infodata,&
+       orb_eccen=eccen, orb_mvelpp=mvelpp, orb_lambm0=lambm0, orb_obliqr=obliqr)
+
+    nlend_sync = seq_timemgr_StopAlarmIsOn(EClock)
+    rstwr_sync = seq_timemgr_RestartAlarmIsOn(EClock)
+    
+    ! Map input from mct to cam data structure
+
+    call t_startf ('CAM_import')
+    call atm_import_mct( x2a_a, cam_in )
+    call t_stopf  ('CAM_import')
+    
+    ! Cycle over all time steps in the atm coupling interval
+    
+    dosend = .false.
+    do while (.not. dosend)
+       
+       ! Determine if dosend
+       ! When time is not updated at the beginning of the loop - then return
+       ! only if
+       ! are in sync with clock before time is updated
+       
+       call get_curr_date( yr, mon, day, tod )
+       ymd = yr*10000 + mon*100 + day
+       tod = tod
+       dosend = (seq_timemgr_EClockDateInSync( EClock, ymd, tod))
+       
+       ! Determine if time to write cam restart and stop
+       
+       rstwr = .false.
+       if (rstwr_sync .and. dosend) rstwr = .true.
+       nlend = .false.
+       if (nlend_sync .and. dosend) nlend = .true.
+       
+       ! Single column specific input 
+       
+       if (single_column) then
+          call scam_use_iop_srf( cam_in )
+       endif
+
+       ! Run CAM (run2, run3, run4)
+       
+       call t_startf ('CAM_run2')
+       call cam_run2( cam_out, cam_in )
+       call t_stopf  ('CAM_run2')
+
+       call t_startf ('CAM_run3')
+       call cam_run3( cam_out )
+       call t_stopf  ('CAM_run3')
+       
+       call t_startf ('CAM_run4')
+       call cam_run4( cam_out, cam_in, rstwr, nlend, &
+            yr_spec=yr_sync, mon_spec=mon_sync, day_spec=day_sync,sec_spec=tod_sync)
+       call t_stopf  ('CAM_run4')
+       
+       ! Advance cam time step 
+       
+       call t_startf ('CAM_adv_timestep')
+       call advance_timestep()
+       call t_stopf  ('CAM_adv_timestep')
+       
+       ! Run cam radiation/clouds (run1)
+          
+       call t_startf ('CAM_run1')
+       call cam_run1 ( cam_in, cam_out ) 
+       call t_stopf  ('CAM_run1')
+       
+       ! Map output from cam to mct data structures
+       
+       call t_startf ('CAM_export')
+       call atm_export_mct( cam_out, a2x_a )
+       call t_stopf ('CAM_export')
+       
+       ! Compute snapshot attribute vector for accumulation
+       
+! don't accumulate on first coupling freq ts1 and ts2
+! for consistency with ccsm3 when flxave is off
+       nstep = get_nstep()
+       if (nstep <= 2) then
+          call mct_aVect_copy( a2x_a, a2x_a_SUM )
+          avg_count = 1
+       else
+          call mct_aVect_copy( a2x_a, a2x_a_SNAP )
+          call mct_aVect_accum( aVin=a2x_a_SNAP, aVout=a2x_a_SUM )
+          avg_count = avg_count + 1
+       endif
+       
+    end do
+
+    ! Finish accumulation of attribute vector and average and copy accumulation 
+    ! field into output attribute vector
+    
+    call mct_aVect_avg ( a2x_a_SUM, avg_count)
+    call mct_aVect_copy( a2x_a_SUM, a2x_a )
+    call mct_aVect_zero( a2x_a_SUM) 
+    avg_count = 0                   
+    
+    ! Get time of next radiation calculation - albedos will need to be 
+    ! calculated by each surface model at this time
+    
+    call seq_timemgr_EClockGetData(Eclock,dtime=atm_cpl_dt)
+    dtime = get_step_size()          
+    if (dtime < atm_cpl_dt) then
+       nextsw_cday = radiation_nextsw_cday() 
+    else if (dtime == atm_cpl_dt) then
+       caldayp1 = get_curr_calday(offset=int(dtime))
+       nextsw_cday = radiation_nextsw_cday() 
+       if (caldayp1 /= nextsw_cday) nextsw_cday = -1._r8
+    else
+       call shr_sys_abort('dtime must be less than or equal to atm_cpl_dt')
+    end if
+    call seq_infodata_PutData( infodata, nextsw_cday=nextsw_cday ) 
+    
+    ! Write merged surface data restart file if appropriate
+    
+    if (rstwr_sync) then
+       call atm_write_srfrest_mct( cdata_a, x2a_a, a2x_a, &
+            yr_spec=yr_sync, mon_spec=mon_sync, day_spec=day_sync,sec_spec=tod_sync)
+    end if
+    
+    ! Check for consistency of internal cam clock with master sync clock 
+    
+    dtime = get_step_size()
+    call get_curr_date( yr, mon, day, tod, offset=-dtime )
+    ymd = yr*10000 + mon*100 + day
+    tod = tod
+    if ( .not. seq_timemgr_EClockDateInSync( EClock, ymd, tod ) )then
+       call seq_timemgr_EClockGetData(EClock, curr_ymd=ymd_sync,curr_tod=tod_sync )
+       write(iulog,*)' cam ymd=',ymd     ,'  cam tod= ',tod
+       write(iulog,*)'sync ymd=',ymd_sync,' sync tod= ',tod_sync
+       call shr_sys_abort( subname//': CAM clock is not in sync with master Sync Clock' )
+    end if
 
    call shr_file_setLogUnit (shrlogunit)
    call shr_file_setLogLevel(shrloglev)
@@ -450,20 +630,379 @@ CONTAINS
 
   subroutine atm_SetGSMap_mct( mpicom_atm, {CCC}ID, gsMap_atm )
 
+    use phys_grid, only : get_nlcols_p
     integer        , intent(in)    :: mpicom_atm
     integer        , intent(in)    :: {CCC}ID
     type(mct_gsMap), intent(inout) :: gsMap_atm
     integer, allocatable :: gindex(:)
+    !
+    ! Local variables
+    !
+    integer, allocatable :: gindex(:)
+    integer :: i, n, c, ncols, sizebuf, nlcols
+    integer :: ier            ! error status
+    !-------------------------------------------------------------------
+
+    ! Build the atmosphere grid numbering for MCT
+    ! NOTE:  Numbering scheme is: West to East and South to North
+    ! starting at south pole.  Should be the same as what's used in SCRIP
+    
+    ! Determine global seg map
+
+    sizebuf=0
+    do c = begchunk, endchunk
+       ncols = get_ncols_p(c)
+       do i = 1,ncols
+          sizebuf = sizebuf+1
+       end do
+    end do
+
+    allocate(gindex(sizebuf))
+
+    n=0
+    do c = begchunk, endchunk
+       ncols = get_ncols_p(c)
+       do i = 1,ncols
+          n=n+1
+          gindex(n) = get_gcol_p(c,i)
+       end do
+    end do
+
+    nlcols = get_nlcols_p()
     call mct_gsMap_init( gsMap_atm, gindex, mpicom_atm, {CCC}ID, nlcols, ngcols)
     deallocate(gindex)
   end subroutine atm_SetgsMap_mct
 
   subroutine atm_import_mct(x2a_a, {ccc_errorcode})
+ use dust_intr,     only: dust_idx1
+#if (defined MODAL_AERO)
+    use mo_chem_utls,  only: get_spc_ndx
+#endif
+    use shr_const_mod, only: shr_const_stebol
+    use seq_drydep_mod,only: n_drydep
     type(mct_aVect)   , intent(inout) :: x2a_a
+ type(cam_in_t),     intent(inout) :: cam_in(begchunk:endchunk)
+    !
+    ! Local variables
+    !       
+    integer  :: i,lat,n,c,ig  ! indices
+    integer  :: ncols         ! number of columns
+    integer  :: dust_ndx
+    logical, save :: first_time = .true.
+
+    ! factors used to convert MEGAN source units [ug C/m2/hr] to CAM srf emis
+    ! units [kg/m2/sec]
+    real(r8), parameter :: isop_factor   = 1._r8/3600._r8/1.e9_r8* 68._r8/
+60._r8
+    real(r8), parameter :: c10h16_factor =
+1._r8/3600._r8/1.e9_r8*136._r8/120._r8
+
+#if (defined MODAL_AERO)
+    integer, parameter:: ndst =2
+    integer, target   :: spc_ndx(ndst)
+#if (defined MODAL_AERO_7MODE)
+    integer, pointer  :: dst_a5_ndx, dst_a7_ndx
+#elif (defined MODAL_AERO_3MODE)
+    integer, pointer  :: dst_a1_ndx, dst_a3_ndx
+#endif
+#endif
+    !-----------------------------------------------------------------------
+    !
+#if (defined MODAL_AERO)
+#if (defined MODAL_AERO_7MODE)
+    dst_a5_ndx => spc_ndx(1)
+    dst_a7_ndx => spc_ndx(2)
+    dst_a5_ndx = get_spc_ndx( 'dst_a5' )
+    dst_a7_ndx = get_spc_ndx( 'dst_a7' )
+#elif (defined MODAL_AERO_3MODE)
+    dst_a1_ndx => spc_ndx(1)
+    dst_a3_ndx => spc_ndx(2)
+    dst_a1_ndx = get_spc_ndx( 'dst_a1' )
+    dst_a3_ndx = get_spc_ndx( 'dst_a3' )
+#endif
+#endif
+
+    ! ccsm sign convention is that fluxes are positive downward
+
+    ig=1
+    do c=begchunk,endchunk
+       ncols = get_ncols_p(c)                                                 
+       do i =1,ncols                                                               
+          cam_in(c)%wsx(i)       = -x2a_a%rAttr(index_x2a_Faxx_taux,ig)     
+          cam_in(c)%wsy(i)       = -x2a_a%rAttr(index_x2a_Faxx_tauy,ig)     
+          cam_in(c)%lhf(i)       = -x2a_a%rAttr(index_x2a_Faxx_lat, ig)     
+          cam_in(c)%shf(i)       = -x2a_a%rAttr(index_x2a_Faxx_sen, ig)     
+          cam_in(c)%lwup(i)      = -x2a_a%rAttr(index_x2a_Faxx_lwup,ig)    
+          cam_in(c)%cflx(i,1)    = -x2a_a%rAttr(index_x2a_Faxx_evap,ig)                
+          cam_in(c)%asdir(i)     =  x2a_a%rAttr(index_x2a_Sx_avsdr, ig)  
+          cam_in(c)%aldir(i)     =  x2a_a%rAttr(index_x2a_Sx_anidr, ig)  
+          cam_in(c)%asdif(i)     =  x2a_a%rAttr(index_x2a_Sx_avsdf, ig)  
+          cam_in(c)%aldif(i)     =  x2a_a%rAttr(index_x2a_Sx_anidf, ig)
+          cam_in(c)%ts(i)        =  x2a_a%rAttr(index_x2a_Sx_t,     ig)  
+          cam_in(c)%sst(i)       =  x2a_a%rAttr(index_x2a_So_t,     ig)             
+          cam_in(c)%snowhland(i) =  x2a_a%rAttr(index_x2a_Sl_snowh, ig)  
+          cam_in(c)%snowhice(i)  =  x2a_a%rAttr(index_x2a_Si_snowh, ig)  
+          cam_in(c)%tref(i)      =  x2a_a%rAttr(index_x2a_Sx_tref,  ig)  
+          cam_in(c)%qref(i)      =  x2a_a%rAttr(index_x2a_Sx_qref,  ig)
+          cam_in(c)%u10(i)       =  x2a_a%rAttr(index_x2a_Sx_u10,   ig)
+          cam_in(c)%icefrac(i)   =  x2a_a%rAttr(index_x2a_Sa_ifrac, ig)  
+          cam_in(c)%ocnfrac(i)   =  x2a_a%rAttr(index_x2a_Sa_ofrac, ig)
+      cam_in(c)%landfrac(i)  =  x2a_a%rAttr(index_x2a_Sa_lfrac, ig)
+          if ( associated(cam_in(c)%ram1) ) &
+               cam_in(c)%ram1(i) =  x2a_a%rAttr(index_x2a_Sl_ram1 , ig)
+          if ( associated(cam_in(c)%fv) ) &
+               cam_in(c)%fv(i)   =  x2a_a%rAttr(index_x2a_Sl_fv   , ig)
+          dust_ndx = dust_idx1()
+          ! check that dust constituents are actually in the simulation
+          if (dust_ndx>0) then
+#if (defined MODAL_AERO)
+#if (defined MODAL_AERO_7MODE)
+            cam_in(c)%cflx(i,dust_ndx   )  = 0.13_r8  &  ! 1st mode, based on
+Zender et al (2003) Table 1
+#elif (defined MODAL_AERO_3MODE)
+            cam_in(c)%cflx(i,dust_ndx   )  = 0.032_r8  &  ! 1st mode, based on
+Zender et al (2003) Table 1
+#endif
+                                           *
+(-x2a_a%rAttr(index_x2a_Fall_flxdst1, ig) &
+                                              -x2a_a%rAttr(index_x2a_Fall_flxdst2,
+ig) &
+                                              -x2a_a%rAttr(index_x2a_Fall_flxdst3,
+ig) &
+                                              -x2a_a%rAttr(index_x2a_Fall_flxdst4,
+ig))
+#if (defined MODAL_AERO_7MODE)
+            cam_in(c)%cflx(i,dust_ndx-spc_ndx(1)+spc_ndx(2))  = 0.87_r8 &  ! 2nd
+mode
+#elif (defined MODAL_AERO_3MODE)
+            cam_in(c)%cflx(i,dust_ndx-spc_ndx(1)+spc_ndx(2))  = 0.968_r8 &  !
+2nd mode
+#endif
+                                           *
+(-x2a_a%rAttr(index_x2a_Fall_flxdst1, ig) &
+                                              -x2a_a%rAttr(index_x2a_Fall_flxdst2,
+ig) &
+                                              -x2a_a%rAttr(index_x2a_Fall_flxdst3,
+ig) &
+                                              -x2a_a%rAttr(index_x2a_Fall_flxdst4,
+ig))
+#else
+        cam_in(c)%cflx(i,dust_ndx   )  = -x2a_a%rAttr(index_x2a_Fall_flxdst1,
+ig)
+        cam_in(c)%cflx(i,dust_ndx +1)  = -x2a_a%rAttr(index_x2a_Fall_flxdst2,
+ig)
+        cam_in(c)%cflx(i,dust_ndx +2)  = -x2a_a%rAttr(index_x2a_Fall_flxdst3,
+ig)
+        cam_in(c)%cflx(i,dust_ndx +3)  = -x2a_a%rAttr(index_x2a_Fall_flxdst4,
+ig)
+#endif
+          endif
+          ! heald: add MEGAN VOC fluxes (convert from units C to units X)
+          if ( id_isop > 0 .and. index_x2a_Faxx_flxvoc1 > 0 ) then
+            cam_in(c)%cflx(i,id_isop)   = -x2a_a%rAttr(index_x2a_Faxx_flxvoc1,
+ig)*isop_factor
+          endif
+          if ( id_c10h16 > 0 .and. index_x2a_Faxx_flxvoc2 > 0 ) then
+            cam_in(c)%cflx(i,id_c10h16) = -x2a_a%rAttr(index_x2a_Faxx_flxvoc2,
+ig)*c10h16_factor
+          endif
+          if ( index_x2a_Sx_ddvel/=0 .and. n_drydep>0 ) then
+             cam_in(c)%depvel(i,:n_drydep) = &
+                  x2a_a%rAttr(index_x2a_Sx_ddvel:index_x2a_Sx_ddvel+n_drydep-1,
+ig)
+          endif
+          !
+          ! fields needed to calculate water isotopes to ocean evaporation
+          ! processes
+          !
+          cam_in(c)%ustar(i) = x2a_a%rAttr(index_x2a_So_ustar,ig)
+          cam_in(c)%re(i)    = x2a_a%rAttr(index_x2a_So_re   ,ig)
+          cam_in(c)%ssq(i)   = x2a_a%rAttr(index_x2a_So_ssq  ,ig)
+          !
+          ! bgc scenarios
+          !
+          if (index_x2a_Faxx_fco2_lnd /= 0) then
+             cam_in(c)%fco2_lnd(i) = -x2a_a%rAttr(index_x2a_Faxx_fco2_lnd,ig)
+          end if
+          if (index_x2a_Faxx_fco2_ocn /= 0) then
+             cam_in(c)%fco2_ocn(i) = -x2a_a%rAttr(index_x2a_Faxx_fco2_ocn,ig)
+          end if
+          if (index_x2a_Faxx_fdms_ocn /= 0) then
+             cam_in(c)%fdms(i)     = -x2a_a%rAttr(index_x2a_Faxx_fdms_ocn,ig)
+          end if
+
+          ig=ig+1
+
+       end do
+    end do
+
+    ! Get total co2 flux from components,
+    ! Note - co2_transport determines if cam_in(c)%cflx(i,c_i(1:4)) is allocated
+
+    if (co2_transport()) then
+
+       ! Interpolate in time for flux data read in
+       if (co2_readFlux_ocn) then
+          call co2_time_interp_ocn
+       end if
+       if (co2_readFlux_fuel) then
+          call co2_time_interp_fuel
+       end if
+       
+       ! from ocn : data read in or from coupler or zero
+       ! from fuel: data read in or zero
+       ! from lnd : through coupler or zero
+       do c=begchunk,endchunk
+          ncols = get_ncols_p(c)                                                 
+          do i=1,ncols                                                               
+             
+             ! all co2 fluxes in unit kgCO2/m2/s ! co2 flux from ocn 
+             if (index_x2a_Faxx_fco2_ocn /= 0) then
+                cam_in(c)%cflx(i,c_i(1)) = cam_in(c)%fco2_ocn(i)
+             else if (co2_readFlux_ocn) then 
+                ! convert from molesCO2/m2/s to kgCO2/m2/s
+                cam_in(c)%cflx(i,c_i(1)) = &
+                     -data_flux_ocn%co2flx(i,c)*(1._r8- cam_in(c)%landfrac(i)) &
+                     *mwco2*1.0e-3_r8
+             else
+                cam_in(c)%cflx(i,c_i(1)) = 0._r8
+             end if
+             
+             ! co2 flux from fossil fuel
+             if (co2_readFlux_fuel) then
+                cam_in(c)%cflx(i,c_i(2)) = data_flux_fuel%co2flx(i,c)
+             else
+                cam_in(c)%cflx(i,c_i(2)) = 0._r8
+             end if
+             
+             ! co2 flux from land (cpl already multiplies flux by land fraction)
+             if (index_x2a_Faxx_fco2_lnd /= 0) then
+                cam_in(c)%cflx(i,c_i(3)) = cam_in(c)%fco2_lnd(i)
+             else
+                cam_in(c)%cflx(i,c_i(3)) = 0._r8
+             end if
+             
+             ! merged co2 flux
+             cam_in(c)%cflx(i,c_i(4)) = cam_in(c)%cflx(i,c_i(1)) + &
+                                        cam_in(c)%cflx(i,c_i(2)) + &
+                                        cam_in(c)%cflx(i,c_i(3))
+          end do
+       end do
+    end if
+    !
+    ! if first step, determine longwave up flux from the surface temperature 
+    !
+    if (first_time) then
+       if (is_first_step()) then
+          do c=begchunk, endchunk
+             ncols = get_ncols_p(c)
+             do i=1,ncols
+                cam_in(c)%lwup(i) = shr_const_stebol*(cam_in(c)%ts(i)**4)
+             end do
+          end do
+       end if
+       first_time = .false.
+    end if
  end subroutine atm_import_mct
 
  subroutine atm_export_mct(a2x_a, {ccc_errorcode}) 
     type(mct_aVect)   , intent(inout) :: a2x_a
+
+
+    a2x_a%rAttr(index_a2x_Sa_pslv   ,ig) = cam_out(c)%psl(i)
+    a2x_a%rAttr(index_a2x_Sa_z   ,ig) = cam_out(c)%zbot(i)
+    a2x_a%rAttr(index_a2x_Sa_u   ,ig) = cam_out(c)%ubot(i)
+    a2x_a%rAttr(index_a2x_Sa_v   ,ig) = cam_out(c)%vbot(i)
+    a2x_a%rAttr(index_a2x_Sa_tbot   ,ig) = cam_out(c)%tbot(i)
+    a2x_a%rAttr(index_a2x_Sa_ptem   ,ig) = cam_out(c)%thbot(i)
+    a2x_a%rAttr(index_a2x_Sa_pbot   ,ig) = cam_out(c)%pbot(i)
+    a2x_a%rAttr(index_a2x_Sa_shum   ,ig) = cam_out(c)%qbot(i+1)
+    a2x_a%rAttr(index_a2x_Sa_dens   ,ig) = cam_out(c)%rho(i)
+    a2x_a%rAttr(index_a2x_Faxa_swnet   ,ig) = cam_out(c)%netsw(i)
+    a2x_a%rAttr(index_a2x_Faxa_lwdn   ,ig) = cam_out(c)%flwds(i)
+    a2x_a%rAttr(index_a2x_Faxa_rainc   ,ig) = cam_out(c)%precc(i)*1000._r8-cam_out(c)%precsc(i)*1000._r8
+    a2x_a%rAttr(index_a2x_Faxa_rainl   ,ig) = cam_out(c)%precl(i)*1000._r8-cam_out(c)%precsl(i)*1000._r8
+    a2x_a%rAttr(index_a2x_Faxa_snowc   ,ig) = cam_out(c)%precsc(i)1000._r8
+    a2x_a%rAttr(index_a2x_Faxa_snowl   ,ig) = cam_out(c)%precsl(i)1000._r8
+    a2x_a%rAttr(index_a2x_Faxa_swndr   ,ig) = cam_out(c)%soll(i)
+    a2x_a%rAttr(index_a2x_Faxa_swvdr   ,ig) = cam_out(c)%sols(i)
+    a2x_a%rAttr(index_a2x_Faxa_swndf   ,ig) = cam_out(c)%solld(i)
+    a2x_a%rAttr(index_a2x_Faxa_swvdf   ,ig) = cam_out(c)%solsd(i)
+    a2x_a%rAttr(index_a2x_Faxa_bcphidry   ,ig) = cam_out(c)%%cphidry(i)
+    a2x_a%rAttr(index_a2x_Faxa_bcphodry   ,ig) = cam_out(c)%bcphodry(i)
+    a2x_a%rAttr(index_a2x_Faxa_bcphiwet   ,ig) = cam_out(c)%bcphiwet(i)
+    a2x_a%rAttr(index_a2x_Faxa_ocphidry   ,ig) = cam_out(c)%ocphidry(i)
+    a2x_a%rAttr(index_a2x_Faxa_ocphodry   ,ig) = cam_out(c)%ocphodry(i)
+    a2x_a%rAttr(index_a2x_Faxa_ocphiwet   ,ig) = cam_out(c)%ocphiwet(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstwet1   ,ig) = cam_out(c)%dstwet1(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstdry1   ,ig) = cam_out(c)%dstdry1(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstwet2   ,ig) = cam_out(c)%dstwet2(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstdry2   ,ig) = cam_out(c)%dstdry2(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstwet3   ,ig) = cam_out(c)%dstwet3(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstdry3   ,ig) = cam_out(c)%dstdry3(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstwet4   ,ig) = cam_out(c)%dstwet4(i)
+    a2x_a%rAttr(index_a2x_Faxa_dstdry4   ,ig) = cam_out(c)%dstdry4(i)
+
+    type(cam_out_t),     intent(in)  :: cam_out(begchunk:endchunk) 
+    integer :: avsize, avnat
+    integer :: i,m,c,n,ig       ! indices
+    integer :: ncols            ! Number of columns
+    !-----------------------------------------------------------------------
+
+    ! Copy from component arrays into chunk array data structure
+    ! Rearrange data from chunk structure into lat-lon buffer and subsequently
+    ! create attribute vector
+
+    ig=1
+    do c=begchunk, endchunk
+       ncols = get_ncols_p(c)
+       do i=1,ncols
+          a2x_a%rAttr(index_a2x_Sa_pslv   ,ig) = cam_out(c)%psl(i)
+          a2x_a%rAttr(index_a2x_Sa_z      ,ig) = cam_out(c)%zbot(i)   
+          a2x_a%rAttr(index_a2x_Sa_u      ,ig) = cam_out(c)%ubot(i)   
+          a2x_a%rAttr(index_a2x_Sa_v      ,ig) = cam_out(c)%vbot(i)   
+          a2x_a%rAttr(index_a2x_Sa_tbot   ,ig) = cam_out(c)%tbot(i)   
+          a2x_a%rAttr(index_a2x_Sa_ptem   ,ig) = cam_out(c)%thbot(i)  
+          a2x_a%rAttr(index_a2x_Sa_pbot   ,ig) = cam_out(c)%pbot(i)   
+          a2x_a%rAttr(index_a2x_Sa_shum   ,ig) = cam_out(c)%qbot(i,1) 
+          a2x_a%rAttr(index_a2x_Sa_dens   ,ig) = cam_out(c)%rho(i)
+          a2x_a%rAttr(index_a2x_Faxa_swnet,ig) = cam_out(c)%netsw(i)      
+          a2x_a%rAttr(index_a2x_Faxa_lwdn ,ig) = cam_out(c)%flwds(i)  
+          a2x_a%rAttr(index_a2x_Faxa_rainc,ig) = (cam_out(c)%precc(i)-cam_out(c)%precsc(i))*1000._r8
+          a2x_a%rAttr(index_a2x_Faxa_rainl,ig) = (cam_out(c)%precl(i)-cam_out(c)%precsl(i))*1000._r8
+          a2x_a%rAttr(index_a2x_Faxa_snowc,ig) = cam_out(c)%precsc(i)*1000._r8
+          a2x_a%rAttr(index_a2x_Faxa_snowl,ig) = cam_out(c)%precsl(i)*1000._r8
+          a2x_a%rAttr(index_a2x_Faxa_swndr,ig) = cam_out(c)%soll(i)   
+          a2x_a%rAttr(index_a2x_Faxa_swvdr,ig) = cam_out(c)%sols(i)   
+          a2x_a%rAttr(index_a2x_Faxa_swndf,ig) = cam_out(c)%solld(i)  
+          a2x_a%rAttr(index_a2x_Faxa_swvdf,ig) = cam_out(c)%solsd(i)  
+
+          ! aerosol deposition fluxes
+          a2x_a%rAttr(index_a2x_Faxa_bcphidry,ig) = cam_out(c)%bcphidry(i)
+          a2x_a%rAttr(index_a2x_Faxa_bcphodry,ig) = cam_out(c)%bcphodry(i)
+          a2x_a%rAttr(index_a2x_Faxa_bcphiwet,ig) = cam_out(c)%bcphiwet(i)
+          a2x_a%rAttr(index_a2x_Faxa_ocphidry,ig) = cam_out(c)%ocphidry(i)
+          a2x_a%rAttr(index_a2x_Faxa_ocphodry,ig) = cam_out(c)%ocphodry(i)
+          a2x_a%rAttr(index_a2x_Faxa_ocphiwet,ig) = cam_out(c)%ocphiwet(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstwet1,ig)  = cam_out(c)%dstwet1(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstdry1,ig)  = cam_out(c)%dstdry1(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstwet2,ig)  = cam_out(c)%dstwet2(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstdry2,ig)  = cam_out(c)%dstdry2(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstwet3,ig)  = cam_out(c)%dstwet3(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstdry3,ig)  = cam_out(c)%dstdry3(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstwet4,ig)  = cam_out(c)%dstwet4(i)
+          a2x_a%rAttr(index_a2x_Faxa_dstdry4,ig)  = cam_out(c)%dstdry4(i)
+
+          if (index_a2x_Sa_co2prog /= 0) then
+             a2x_a%rAttr(index_a2x_Sa_co2prog,ig) = cam_out(c)%co2prog(i) ! atm prognostic co2
+          end if
+          if (index_a2x_Sa_co2diag /= 0) then
+             a2x_a%rAttr(index_a2x_Sa_co2diag,ig) = cam_out(c)%co2diag(i) ! atm diagnostic co2
+          end if
+
+          ig=ig+1
+       end do
+    end do
  end subroutine atm_export_mct
 
  subroutine atm_domain_mct( lsize, gsMap_a, dom_a)
@@ -471,7 +1010,15 @@ CONTAINS
     integer        , intent(in)    :: lsize
     type(mct_gsMap), intent(in)    :: gsMap_a
     type(mct_ggrid), intent(inout) :: dom_a
+    integer  :: n,i,c,ncols           ! indices 
+    real(r8) :: lats(pcols)           ! array of chunk latitudes
+    real(r8) :: lons(pcols)           ! array of chunk longitude
+    real(r8) :: area(pcols)           ! area in radians squared for each grid point
+    real(r8), pointer  :: data(:)     ! temporary
+    integer , pointer  :: idata(:)    ! temporary
+    real(r8), parameter:: radtodeg = 180.0_r8/SHR_CONST_PI
     call mct_gGrid_init( GGrid=dom_a, CoordChars=trim(seq_flds_dom_coord), OtherChars=trim(seq_flds_dom_other), lsize=lsize )
+    allocate(data(lsize))
     allocate(data(lsize))
     call mct_gsMap_orderedPoints(gsMap_a, {my_task}, idata)
     call mct_gGrid_importIAttr(dom_a,'GlobGridNum',idata,lsize)
@@ -484,7 +1031,233 @@ CONTAINS
     data(:) = 0.0_R8     
     call mct_gGrid_importRAttr(dom_a,"mask",data,lsize) 
     call mct_gGrid_importRAttr(dom_a,"frac",data,lsize)
+    data(:) = 1.0_R8
+    call mct_gGrid_importRAttr(dom_a,"frac" ,data,lsize)
+    !
+    ! Fill in correct values for domain components
+    !
+    n=0
+    do c = begchunk, endchunk
+       ncols = get_ncols_p(c)
+       call get_rlat_all_p(c, ncols, lats)
+       do i=1,ncols
+          n = n+1
+          data(n) = lats(i)*radtodeg
+       end do
+    end do
+    call mct_gGrid_importRAttr(dom_a,"lat",data,lsize) 
+
+    n=0
+    do c = begchunk, endchunk
+       ncols = get_ncols_p(c)
+       call get_rlon_all_p(c, ncols, lons)
+       do i=1,ncols
+          n = n+1
+          data(n) = lons(i)*radtodeg
+       end do
+    end do
+    call mct_gGrid_importRAttr(dom_a,"lon",data,lsize) 
+
+    n=0
+    do c = begchunk, endchunk
+       ncols = get_ncols_p(c)
+       call get_area_all_p(c, ncols, area)
+       do i=1,ncols
+          n = n+1
+          data(n) = area(i) 
+       end do
+    end do
+    call mct_gGrid_importRAttr(dom_a,"area",data,lsize) 
+
+    n=0
+    do c = begchunk, endchunk
+       ncols = get_ncols_p(c)
+       do i=1,ncols
+          n = n+1
+          data(n) = 1._r8 ! mask
+       end do
+    end do
+    call mct_gGrid_importRAttr(dom_a,"mask"   ,data,lsize)
     deallocate(data)
     deallocate(idata)
   end subroutine atm_domain_mct
+ subroutine atm_read_srfrest_mct( EClock, cdata_a, x2a_a, a2x_a)
+    use cam_pio_utils
+    !-----------------------------------------------------------------------
+    !
+    ! Arguments
+    !
+    type(ESMF_Clock),intent(in)    :: EClock
+    type(seq_cdata), intent(inout) :: cdata_a
+    type(mct_aVect), intent(inout) :: x2a_a
+    type(mct_aVect), intent(inout) :: a2x_a
+    ! 
+    ! Local variables
+    !
+    integer         :: npts         ! array size
+    integer         :: rcode        ! return error code
+    type(mct_aVect) :: gData        ! global/gathered bundle data
+    integer         :: yr_spec      ! Current year
+    integer         :: mon_spec     ! Current month
+    integer         :: day_spec     ! Current day
+    integer         :: sec_spec     ! Current time of day (sec)
+    !-----------------------------------------------------------------------
+    !
+    ! Determine and open surface restart dataset
+    !
+    integer, pointer :: dof(:)
+    integer :: lnx, nf_x2a, nf_a2x, k
+    real(r8), allocatable :: tmp(:)
+    type(file_desc_t) :: file
+    type(io_desc_t) :: iodesc
+    type(var_desc_t) :: varid
+    character(CL)    :: itemc       ! string converted to char
+    type(mct_string) :: mstring     ! mct char type
+
+
+
+    call seq_timemgr_EClockGetData( EClock, curr_yr=yr_spec,curr_mon=mon_spec, &
+         curr_day=day_spec, curr_tod=sec_spec ) 
+    fname_srf_cam = interpret_filename_spec( rsfilename_spec_cam,
+case=get_restcase(), &
+         yr_spec=yr_spec, mon_spec=mon_spec, day_spec=day_spec, sec_spec=
+sec_spec )
+    pname_srf_cam = trim(get_restartdir() )//fname_srf_cam
+    call getfil(pname_srf_cam, fname_srf_cam)
+    
+    call cam_pio_openfile(File, fname_srf_cam, 0)
+    call mct_gsmap_OrderedPoints(cdata_a%gsmap, iam, Dof)
+    lnx = mct_gsmap_gsize(cdata_a%gsmap)
+    call pio_initdecomp(pio_subsystem, pio_double, (/lnx/), dof, iodesc)
+    allocate(tmp(size(dof)))
+    deallocate(dof)
+    
+    nf_x2a = mct_aVect_nRattr(x2a_a)
+
+    do k=1,nf_x2a
+       call mct_aVect_getRList(mstring,k,x2a_a)
+       itemc = mct_string_toChar(mstring)
+       call mct_string_clean(mstring)
+
+       call pio_seterrorhandling(File, pio_bcast_error)
+       rcode = pio_inq_varid(File,'x2a_'//trim(itemc) ,varid)
+       if (rcode == pio_noerr) then
+          call pio_read_darray(File, varid, iodesc, tmp, rcode)
+          x2a_a%rattr(k,:) = tmp(:)
+       else
+      if (masterproc) then
+             write(iulog,*)'srfrest warning: field ',trim(itemc),' is not on
+restart file'
+             write(iulog,*)'for backwards compatibility will set it to 0'
+          end if
+          x2a_a%rattr(k,:) = 0._r8
+       end if
+       call pio_seterrorhandling(File, pio_internal_error)
+    end do
+
+    nf_a2x = mct_aVect_nRattr(a2x_a)
+
+    do k=1,nf_a2x
+       call mct_aVect_getRList(mstring,k,a2x_a)
+       itemc = mct_string_toChar(mstring)
+       call mct_string_clean(mstring)
+
+       rcode = pio_inq_varid(File,'a2x_'//trim(itemc) ,varid)
+       call pio_read_darray(File, varid, iodesc, tmp, rcode)
+       a2x_a%rattr(k,:) = tmp(:)
+    end do
+
+    call pio_freedecomp(File,iodesc)
+    call pio_closefile(File)
+    deallocate(tmp)
+
+  end subroutine atm_read_srfrest_mct
+!
+!===========================================================================================
+!
+  subroutine atm_write_srfrest_mct( cdata_a, x2a_a, a2x_a, & 
+       yr_spec, mon_spec, day_spec, sec_spec)
+    use cam_pio_utils
+    !-----------------------------------------------------------------------
+    !
+    ! Arguments
+    !
+    type(seq_cdata), intent(in) :: cdata_a
+    type(mct_aVect), intent(in) :: x2a_a
+    type(mct_aVect), intent(in) :: a2x_a
+    integer        , intent(in) :: yr_spec         ! Simulation year
+    integer        , intent(in) :: mon_spec        ! Simulation month
+    integer        , intent(in) :: day_spec        ! Simulation day
+    integer        , intent(in) :: sec_spec        ! Seconds into current simulation day
+    !
+    ! Local variables
+    !
+    integer         :: rcode        ! return error code
+    type(mct_aVect) :: gData        ! global/gathered bundle data
+    !-----------------------------------------------------------------------
+    !
+    ! Determine and open surface restart dataset
+    !
+
+    integer, pointer :: dof(:)
+    integer :: nf_x2a, nf_a2x, lnx, dimid(1), k
+    type(file_desc_t) :: file
+    type(var_desc_t), pointer :: varid_x2a(:), varid_a2x(:)
+    type(io_desc_t)  :: iodesc
+    character(CL)    :: itemc       ! string converted to char
+    type(mct_string) :: mstring     ! mct char type
+
+
+    fname_srf_cam = interpret_filename_spec( rsfilename_spec_cam, &
+         yr_spec=yr_spec, mon_spec=mon_spec, day_spec=day_spec, sec_spec=sec_spec )
+    call cam_pio_createfile(File, fname_srf_cam, 0)
+
+    call mct_gsmap_OrderedPoints(cdata_a%gsmap, iam, Dof)
+    lnx = mct_gsmap_gsize(cdata_a%gsmap)
+    call pio_initdecomp(pio_subsystem, pio_double, (/lnx/), dof, iodesc)
+
+    deallocate(dof)
+    
+    nf_x2a = mct_aVect_nRattr(x2a_a)
+    allocate(varid_x2a(nf_x2a))
+    
+    rcode = pio_def_dim(File,'x2a_nx',lnx,dimid(1))
+    do k = 1,nf_x2a
+       call mct_aVect_getRList(mstring,k,x2a_a)
+       itemc = mct_string_toChar(mstring)
+       call mct_string_clean(mstring)
+       rcode = pio_def_var(File,'x2a_'//trim(itemc),PIO_DOUBLE,dimid,varid_x2a(k))
+       rcode = pio_put_att(File,varid_x2a(k),"_fillvalue",fillvalue)
+    enddo
+
+    nf_a2x = mct_aVect_nRattr(a2x_a)
+    allocate(varid_a2x(nf_a2x))
+    
+    rcode = pio_def_dim(File,'a2x_nx',lnx,dimid(1))
+    do k = 1,nf_a2x
+       call mct_aVect_getRList(mstring,k,a2x_a)
+       itemc = mct_string_toChar(mstring)
+       call mct_string_clean(mstring)
+       rcode = PIO_def_var(File,'a2x_'//trim(itemc),PIO_DOUBLE,dimid,varid_a2x(k))
+       rcode = PIO_put_att(File,varid_a2x(k),"_fillvalue",fillvalue)
+    enddo
+
+    rcode = pio_enddef(File)  ! don't check return code, might be enddef already
+
+
+    do k=1,nf_x2a
+       call pio_write_darray(File, varid_x2a(k), iodesc, x2a_a%rattr(k,:), rcode)
+    end do
+
+    do k=1,nf_a2x
+       call pio_write_darray(File, varid_a2x(k), iodesc, a2x_a%rattr(k,:), rcode)       
+    end do
+
+    deallocate(varid_x2a, varid_a2x)
+
+    call pio_freedecomp(File,iodesc)
+    call pio_closefile(file)
+
+
+  end subroutine atm_write_srfrest_mct
 end module atm_comp_mct

@@ -144,6 +144,12 @@ CONTAINS
 
  subroutine {ccc}_export_mct({c}2x_{c}, {ccc_errorcode}) 
     type(mct_aVect)   , intent(inout) :: {c}2x_{c}
+
+
+!<list> key="export"
+    {c}2x_{c}%rAttr(index_{c}2x_{x1}_{x2}   ,{x}) = {ccc_out}%{x3}(i){x4}
+!</list>
+
 !xmlinsert(list[18])
  end subroutine {ccc}_export_mct
 
