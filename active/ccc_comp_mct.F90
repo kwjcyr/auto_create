@@ -1,3 +1,4 @@
+!xmlinsert(list[0])
 module {ccc}_comp_mct
 
 !xmlinsert(list[1])
