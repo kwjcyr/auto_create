@@ -1,0 +1,134 @@
+[ccsm_before]
+srcfile="create/ccsm_before.F90"
+desfile="create/ccsm_before_all.F90"
+ccc1 = ['atm','wrf','geatm','lnd','ocn','ice','glc']
+ccc1a1 = ['atm','wrf','gea','lnd','ocn','ice','glc']
+c1 = ['a','w','ge','l','o','i','g']
+ccc2 = ['atm','lnd','ocn','ice','glc']
+ccc3 = ['wrf','cam','cam','wrf','atm','lnd','ocn','ice','glc','sno']
+c3 = ['w','c','ca','ge','a','l','o','i','g','s']
+ccc4 = ['cam','wrf','gcam','gea','ice','lnd','rof','atm','glc','sno','ocn']
+map1 = [['atm','lnd'],['atm','ice'],['atm','ocn'],['ice','ocn'],['rof','ocn'],['sno','glc'],['wrf','cam'],['gea','cam']]
+c5 = ['a','l','o','i','r','g','s','w','c','m','ge','ca']
+cc6 = ['aa','ll','ii','oo','rr','gg','ss','ww','ge']
+ccc6 = ['atm','lnd','ice','ocn','rof','glc','sno','wrf','geatm']
+ccc7 = ['atm','lnd','ice','ocn','ocnrof','glc','sno','wrf','geatm']
+ccc8 = ['ATM','LND','ICE','OCN','GLC','WRF','GEA']
+[ccsm_pre_init]
+srcfile="create/ccsm_pre_init_example.F90"
+desfile="create/ccsm_pre_init.F90"
+CCC=['CPL','OCN','ATM','LND','ICE','GLC','WRF','GEA']
+[ccsm_init]
+srcfile="create/ccsm_init_exp.F90"
+desfile="create/ccsm_init3.F90"
+inputccc=[['ATM','a'],['LND','l'],['LND','r'],['LND','s'],\
+          ['ICE','i'],['OCN','o'],['GLC','g'],['WRF','w'],\
+            ['WRF','m'],['ATM','c'],['GEA','ge'],['ATM','ca']]
+CCC=['CPL','OCN','ATM','LND','ICE','GLC','WRF','GEA']
+c0=['a', 'i', 'l', 'o', 'r', 'g', 's']
+ccc0=['atm','ice','lnd','ocn','rof','glc','sno']
+ccc_init_mct = [
+         'EClock_o, cdata_oo, x2o_oo, o2x_oo, NLFilename=NLFilename',
+         'EClock_a, cdata_aa, cdata_cc, cdata_caca, x2a_aa, a2x_aa, x2c_cc1, x2c_cc2, c2x_cc1, c2x_cc2,x2ca_caca1, x2ca_caca2, ca2x_caca1, ca2x_caca2,twoway_coupling, twoway_nudging, NLFilename=NLFilename',
+         'EClock_l, cdata_ll, x2l_ll, l2x_ll, cdata_rr,r2x_rr, cdata_ss, x2s_ss, s2x_ss,NLFilename=NLFilename', 
+         'EClock_i, cdata_ii, x2i_ii, i2x_ii,NLFilename=NLFilename',
+         'EClock_g, cdata_gg, x2g_gg, g2x_gg,NLFilename=NLFilename',
+         'EClock_w, cdata_ww, cdata_mm, x2w_ww, w2x_ww,x2m_mm1, x2m_mm2, m2x_mm, twoway_coupling, twoway_nudging,NLFilename=NLFilename',
+         'EClock_ge, cdata_gege, x2chem_chemchem1,x2chem_chemchem2,chem2x_chemchem']
+inputccc_both=[['ATM','atm','a'],['ATM','wrf','w'],['ATM','geatm','g'],\
+               ['LND','lnd','l'],['LND','rof','r'],['LND','sno','s'],\
+               ['ICE','ice','i'],['OCN','ocn','o'],['GLC','glc','g']]
+mrg_init_ccc=[['atm','a','a','a',['l','o','i'],'0',',xao_ax'],\
+          ['wrf','w','m','m',['c'],'1'],\
+          ['wrf','w','m','m',['c'],'2'],\
+          ['cam','c','c','c',['m'],'0'],\
+          ['geam','ge','ge','chem',['ca'],'1'],\
+          ['geam','ge','ge','chem',['ca'],'2'],\
+          ['cam','ca','ca','ca',['chem'],'0'],\
+          ['ice','i','i','i',['a','o'],'0'],\
+          ['ocn','o','o','o',['a','i','r'],'0'],\
+          ['lnd','l','l','l',['a'],'0'],\
+          ['glc','g','g','g',['s'],'0'],\
+          ['sno','s','s','s',['g'],'0']]
+mapping_init=[['ocn_present','atm','ocn','2'],\
+          ['ice_present .and. ocn_present','ocn','ice','2'],\
+          ['ice_present','atm','ice','-1'],\
+          ['rof_present .and. ocnrof_prognostic','rof','ocn','+1'],\
+          ['lnd_present','atm','lnd','2'],\
+          ['sno_present .and. glc_present','sno','glc','2'],\
+          ['wrf_present','cam','wrf','2'],\
+          ['geatm_present','cam','gea','2']]
+[ccsm_run]
+srcfile="create/cesm_run_exp.F90"
+desfile="create/cesm_run3.F90"
+inputccc=[['ATM','a'],['LND','l'],['LND','r'],['LND','s'],\
+          ['ICE','i'],['OCN','o'],['GLC','g'],['WRF','w'],\
+          ['WRF','m'],['ATM','c'],['GEA','ge'],['ATM','ca']]
+CCC=['CPL','OCN','ATM','LND','ICE','GLC','WRF','GEA']
+CCC1=[['ATM','atm'],['WRF','wrf'],['GEA','geatm'],['LND','lnd'],['ICE','ice'],['OCN','ocn'],['GLC','glc']]
+c0=['a', 'i', 'l', 'o', 'r', 'g', 's']
+ccc0=['atm','ice','lnd','ocn','rof','glc','sno']
+ccc_init_mct = ['EClock_o, cdata_oo, x2o_oo, o2x_oo, NLFilename=NLFilename',
+        'EClock_a, cdata_aa, cdata_cc, cdata_caca, x2a_aa, a2x_aa, x2c_cc1, x2c_cc2, c2x_cc1, c2x_cc2,x2ca_caca1, x2ca_caca2, ca2x_caca1, ca2x_caca2,twoway_coupling, twoway_nudging, NLFilename=NLFilename',
+        'EClock_l, cdata_ll, x2l_ll, l2x_ll, cdata_rr,r2x_rr, cdata_ss, x2s_ss, s2x_ss,NLFilename=NLFilename',          
+        'EClock_i, cdata_ii, x2i_ii, i2x_ii,NLFilename=NLFilename',
+        'EClock_g, cdata_gg, x2g_gg, g2x_gg,NLFilename=NLFilename',
+        'EClock_w, cdata_ww, cdata_mm, x2w_ww, w2x_ww,x2m_mm1, x2m_mm2, m2x_mm, twoway_coupling, twoway_nudging,NLFilename=NLFilename',
+        'EClock_ge, cdata_gege, x2chem_chemchem1,x2chem_chemchem2,chem2x_chemchem']
+inputccc_both=[['ATM','atm','a'],['ATM','wrf','w'],['ATM','geatm','g'],\
+               ['LND','lnd','l'],['LND','rof','r'],['LND','sno','s'],\
+               ['ICE','ice','i'],['OCN','ocn','o'],['GLC','glc','g']]
+mrg_init_ccc=[['atm','a','a','a',['l','o','i'],'0',',xao_ax'],\
+          ['wrf','w','m','m',['c'],'1'],\
+          ['wrf','w','m','m',['c'],'2'],\
+          ['cam','c','c','c',['m'],'0'],\
+          ['geam','ge','ge','chem',['ca'],'1'],\
+          ['geam','ge','ge','chem',['ca'],'2'],\
+          ['cam','ca','ca','ca',['chem'],'0'],\
+          ['ice','i','i','i',['a','o'],'0'],\
+          ['ocn','o','o','o',['a','i','r'],'0'],\
+          ['lnd','l','l','l',['a'],'0'],\
+          ['glc','g','g','g',['s'],'0'],\
+          ['sno','s','s','s',['g'],'0']]
+mapping_init=[['ocn_present','atm','ocn','2'],\
+          ['ice_present .and. ocn_present','ocn','ice','2'],\
+          ['ice_present','atm','ice','-1'],\
+          ['rof_present .and. ocnrof_prognostic','rof','ocn','+1'],\
+          ['lnd_present','atm','lnd','2'],\
+          ['sno_present .and. glc_present','sno','glc','2'],\
+          ['wrf_present','cam','wrf','2'],\
+          ['geatm_present','cam','gea','2']]
+dict_cpl2ccc = {'ocn':['OCN','O','ocn','o',''],
+        'ocntightcpl':['OCN','O','ocn','o','ocean_tight_coupling .and. ocn_present .and. ocnnext_alarm'],
+        'ocnloosecpl':['OCN','O','ocn','o','.not. ocean_tight_coupling .and. ocn_present .and. ocnnext_alarm'],
+        'lnd':['LND','L','lnd','l','(lnd_present.or.rof_present.or.sno_present) .and. lndrun_alarm'],
+        'ice':['ICE','I','ice','i','ice_present .and. icerun_alarm'],
+        'glc':['GLC','G','glc','g','glc_present .and. sno_prognostic .and. glcrun_alarm'],
+        'atm':['ATM','A','atm','a','atm_present .and. atmrun_alarm']}
+dict_prepmodel = {
+        'ice':['ICE','I','ice','i',{'ccc1':['ocn','atm'],'c1':['o','a']}],
+        'glc':['GLC','G','glc','g',{'ccc1':['sno'],'c1':['s']}],
+        'lnd':['LND','L','lnd','l',{'ccc1':['atm'],'c1':['a']}]}
+
+dict_mulmodel = {'lnd':['LND','L','lnd','l',{'ccc0':['lnd','rof','sno'],'c0':['l','r','s'],\
+                        'ccc1':['lnd','sno'],'c1':['l','s'],\
+                            'segment1':['lnd_prognostic','glc_present .and. sno_prognostic'],\
+                         'ccc2':['rof','sno'],'c2':['r','s'],\
+                         'ccc3':['lnd'],'c3':['l'],'segment3':['lnd_prognostic .or. sno_prognostic']}]}
+
+[mapconf]
+srcfile = "mapping/map_ccc1ccc2_mct.F90"
+dictpair = {1:["atm","lnd"],2:["atm","ocn"],3:["atm","ice"],4:["rof","ocn"],5:["ice","ocn"],6:["sno","glc"]}
+dom = [1,2,4,6]
+infodata = [1,2,3,4]
+global_grid_sizes = [5,6]
+areasrc_dst = [1,2,4,6]
+samegrid = [1,2,3,4]
+without_samegrid = [5,6]
+before_samegrid=[1,5]
+fraction=[1,2,3]
+
+[mergeconf]
+srcfile = 'merge/mrg_x2{c}_mct.F90'
+modlist = ['glc','sno','lnd','ice']
+cother = {'glc':['sno'],'sno':['glc'],'lnd':['atm'],'ice':['atm','ocn']}
