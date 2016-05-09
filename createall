@@ -1,13 +1,15 @@
 echo "auto create ccsm_before"
-./create/create_ccsm_v0.py
+python2.7 create/create_ccsm_v0.py
 echo "auto create ccsm_pre_init"
-./create/create_ccsm_v1.py
+python2.7 create/create_ccsm_v1.py
 echo "auto create ccsm_init"
-./create/create_ccsm_v2.py
+python2.7 create/create_ccsm_v2.py
 echo "auto create ccsm_run"
-./create/create_ccsm_v3.py
+python2.7 create/create_ccsm_v3.py
 cat create/ccsm_before_all.F90 create/ccsm_pre_init.F90 create/ccsm_init3.F90 create/cesm_run3.F90 > create/my_ccsm_comp_mct.F90
-echo "auto create mapping"
-./mapping/create_mapping_v1.py
+echo "auto create ccc1 to ccc2 mapping"
+python2.7 mapping/create_mapping_v1.py
+echo "auto create ccc mapping"
+python2.7 map/create_map.py
 echo "auto create merge"
-./merge/create_merge_v1.py
+python2.7 merge/create_merge_v1.py

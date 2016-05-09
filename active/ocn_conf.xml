@@ -1,2 +1,13 @@
 [conf]
 runtypemap_key=nsrest
+attr_c2x=['So_t','So_u','So_v','So_s',
+          'So_dhdx','So_dhdy','Fioo_q','Faoo_fco2_ocn','Faoo_fdms_ocn']
+attr_x2c=['Si_ifrac','So_duu10n','Sa_pslv','Sa_co2prog','Sa_co2diag',
+          'Foxx_taux','Foxx_tauy','Foxx_swnet','Foxx_sen','Foxx_lat','Foxx_lwdn',
+          'Foxx_lwup','Foxx_melth','Foxx_salt','Foxx_prec','Foxx_snow','Foxx_rain',
+          'Foxx_evap','Foxx_meltw','Forr_roff','Forr_ioff','Foxx_bcphidry',
+          'Foxx_bcphodry','Foxx_bcphiwet','Foxx_ocphidry','Foxx_ocphodry','Foxx_ocphiwet',
+          'Foxx_dstwet1','Foxx_dstwet2','Foxx_dstwet3','Foxx_dstwet4',
+          'Foxx_dstdry1','Foxx_dstdry2','Foxx_dstdry3','Foxx_dstdry4']
+
+

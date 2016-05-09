@@ -127,6 +127,8 @@ samegrid = [1,2,3,4]
 without_samegrid = [5,6]
 before_samegrid=[1,5]
 fraction=[1,2,3]
+map_example="map/map_ccc2ccc_mct.F90"
+map_ccc=['atm','lnd','rof','sno','ice','glc','ocn','cam','wrf','gcam','gea']
 
 [mergeconf]
 srcfile = 'merge/mrg_x2{c}_mct.F90'
