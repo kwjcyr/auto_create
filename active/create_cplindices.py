@@ -22,12 +22,17 @@ for ccc in modccc:
     while i < len(lines):
         if '{list}' in lines[i]:
             key = re.findall(r'key=\"(.*?)\"',lines[i])
-            array = vars()[key[0]]
+            array = eval(vars()[key[0]])
+            i = i+1
+            line = lines[i][1:].replace('{ccc}',ccc[0]).replace('{c}',ccc[0][0]).replace('{CCC}',ccc[1])
             for attr in array:
-                
+                #print attr
+                tmpline = line.replace('{'+key[0]+'}',attr)
+                listwrite.append(tmpline)
+            i = i+1
         line = lines[i]
         tmpline = line
-        tmpline = tmpline.replace('{ccc}',ccc[0]).replace('{c}',ccc[0][0]).replace('{CCC}',ccc[1])
+        tmpline = tmpline.replace('{ccc}',ccc[0]).replace('{c}',ccc[0][0]).replace('{CCC}',ccc[1]).replace('{cccmodule}',ccc[1])
         listwrite.append(tmpline)
         i = i + 1
     desfile = ccc[1]+"_CplIndies.F90"
